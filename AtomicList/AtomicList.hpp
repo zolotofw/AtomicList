@@ -50,6 +50,10 @@ public:
 	{
 		return m_size;
 	}
+	inline bool empty() const
+	{
+		return m_size <= 0;
+	}
 	inline Type& front()
 	{
 		Node* head = m_head.load();
@@ -95,6 +99,9 @@ public:
 	}
 	void push_front(const Type& value);
 	void push_back(const Type& value);
+	void pop_front();
+	void pop_back();
+
 
 private:
 	std::atomic_size_t m_size;
@@ -149,7 +156,8 @@ template<typename Type>
 inline void AtomicList<Type>::push_front(const Type& value)
 {
 	Node* current_head = m_head.load();
-	if (current_head == nullptr && m_size == 0)
+
+	if (m_size == 0)
 	{
 		Node* new_node = new Node{ value, nullptr, nullptr };
 		while (!m_head.compare_exchange_strong(current_head, new_node));
@@ -157,11 +165,6 @@ inline void AtomicList<Type>::push_front(const Type& value)
 		m_tail = m_head.load();
 		++m_size;
 		return;
-	}
-
-	while (current_head == nullptr)
-	{
-		current_head = m_head.load();
 	}
 
 	Node* new_head = new Node{ value, nullptr, current_head };
@@ -176,22 +179,16 @@ template<typename Type>
 inline void AtomicList<Type>::push_back(const Type& value)
 {
 	Node* current_tail = m_tail.load();
-	if (current_tail == nullptr && m_size == 0)
+
+	if (m_size == 0)
 	{
 		Node* new_node = new Node{ value, nullptr, nullptr };
-		while (!m_head.compare_exchange_strong(current_tail, new_node))
-		{
-			current_tail = m_head.load() == m_tail.load() ? m_head.load() : nullptr;
-		}
+		while (!m_head.compare_exchange_strong(current_tail, new_node));
 
 		m_head = m_tail.load();
 		++m_size;
-		return;
-	}
 
-	while (current_tail == nullptr)
-	{
-		current_tail = m_tail.load();
+		return;
 	}
 
 	Node* new_tail = new Node{ value, current_tail, nullptr };
@@ -200,6 +197,50 @@ inline void AtomicList<Type>::push_back(const Type& value)
 	while (!m_tail.compare_exchange_strong(current_tail, new_tail));
 
 	++m_size;
+}
+
+template<typename Type>
+inline void AtomicList<Type>::pop_front()
+{
+	if (m_size == 0)
+	{
+		return;
+	}
+
+	Node* remove_head = m_head.load();
+	Node* new_head = remove_head->next;
+
+	if (new_head != nullptr)
+	{
+		new_head->prev = nullptr;
+	}
+
+	while (!m_head.compare_exchange_strong(remove_head, new_head));
+
+	--m_size;
+	delete remove_head;
+}
+
+template<typename Type>
+inline void AtomicList<Type>::pop_back()
+{
+	if (m_size == 0)
+	{
+		return;
+	}
+
+	Node* remove_tail = m_tail.load();
+	Node* new_tail = remove_tail->prev;
+
+	if (new_tail != nullptr)
+	{
+		new_tail->next = nullptr;
+	}
+
+	while (!m_tail.compare_exchange_strong(remove_tail, new_tail));
+
+	--m_size;
+	delete remove_tail;
 }
 
 class Testing
